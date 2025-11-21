@@ -3,9 +3,9 @@ import os
 import time
 from dataclasses import dataclass
 from typing import List, Tuple, Dict
-from dotenv import load_dotenv  # <--- ADD THIS IMPORT
+from dotenv import load_dotenv
 
-# Load environment variables from .env file immediately
+# Load environment variables
 load_dotenv()
 
 # --- Azure Imports ---
@@ -45,17 +45,12 @@ class BookInfo:
 # ============================================================================
 st.sidebar.header("⚙️ Azure Configuration")
 
-def get_secret(key):
-    if key in st.secrets:
-        return st.secrets[key]
-    return ""
-
 AZURE_STORAGE_CONN_STR = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")
 
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-12-01-preview") # Default if not in .env
+AZURE_OPENAI_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-12-01-preview")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4.1")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 
@@ -64,6 +59,7 @@ AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX_NAME")
 
 creds_present = all([AZURE_STORAGE_CONN_STR, CONTAINER_NAME, AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX])
+
 with st.sidebar:
     st.header("⚙️ System Status")
     if creds_present:
@@ -71,10 +67,10 @@ with st.sidebar:
     else:
         st.error("❌ Missing Credentials in .env")
         st.info("Please check your .env file contains all required Azure keys.")
+
 # ============================================================================
 # LOGIC: BOOK DISCOVERY & PARSING
 # ============================================================================
-
 def parse_book_filename(filename: str) -> Tuple[str, str]:
     name_without_ext = filename.replace('.pdf', '').strip()
     common_suffixes = [' - libgen.li', ' - z-lib.org', ' - z-library', ' - libgen', ' - zlibrary']
@@ -126,10 +122,6 @@ def search_book_by_criteria(books_info: List[BookInfo], title: str = None, autho
     return matches
 
 # ============================================================================
-# LOGIC: SUMMARIZER CLASS
-# ============================================================================
-
-# ============================================================================
 # PROMPT GENERATION HELPER
 # ============================================================================
 def get_default_prompt_template(language: str) -> str:
@@ -146,6 +138,7 @@ def get_default_prompt_template(language: str) -> str:
     # Default to English if language not found
     c = callout_translations.get(language, callout_translations["English"])
     
+    # FIX: Replaced {self.summary_language} with {language} below
     return f"""
 You are creating a COMPREHENSIVE, LONG, engaging, conversational book summary for a Personal Growth & Self-Help book.
 This should be an EXTENSIVE and DETAILED summary that thoroughly covers all major concepts from the book.
@@ -167,37 +160,56 @@ Your goal is to make complex ideas accessible and keep readers engaged throughou
   * "{c['the_truth_is']}" (for powerful statements)
 
 **GENRE FOCUS: Personal Growth & Self-Help**
-- Focus on practical self-improvement strategies and actionable advice.
-- Address common personal challenges (mindset, habits, relationships).
-- Use relatable life scenarios and everyday examples.
+This book belongs to the Personal Growth & Self-Help genre. Your summary should:
+- Focus on practical self-improvement strategies and actionable advice
+- Address common personal challenges (mindset, habits, relationships, success, fulfillment)
+- Emphasize personal transformation and growth
+- Include psychological insights and behavioral change principles
+- Connect concepts to the reader's personal journey
+- Balance inspiration with practical, implementable steps
+- Address both internal (mindset, beliefs) and external (actions, habits) changes
+- Use relatable life scenarios and everyday examples
 
 **LENGTH REQUIREMENTS - CRITICAL:**
-1. The summary MUST be EXTENSIVE - aim for 10,000-15,000 words minimum.
-2. Cover 8-12 major concepts/principles from the book.
-3. Each major concept should have 800-1,500 words of detailed explanation.
-4. Include multiple examples, scenarios, and practical applications for each concept.
+1. The summary MUST be EXTENSIVE and COMPREHENSIVE - aim for 10,000-15,000 words minimum
+2. This is a 12-15 minute read - it needs to be LONG and provide substantial value
+3. Cover 8-12 major concepts/principles from the book
+4. Each major concept should have 800-1,500 words of detailed explanation
+5. Include multiple examples, scenarios, and practical applications for each concept
+6. DO NOT create a brief summary - expand every concept thoroughly
+7. Each major section should have 5-8 paragraphs of detailed explanation
+8. Don't rush through concepts - take time to explain them thoroughly with examples
+9. The reader should feel they've gotten immense value without reading the full book
 
 **STRUCTURE - COMPREHENSIVE Coverage:**
 
 **Opening (200-300 words):**
-- Start with an engaging hook.
-- Set up the main problem or challenge.
+- Start with an engaging hook - a provocative question or relatable scenario about personal growth
+- Set up the main problem or challenge in personal development that the book addresses
+- Create curiosity about the transformation or insights to come
+- Make it personally relevant to the reader's life journey
 
 **8-12 MAJOR SECTIONS (each 800-1,500 words):**
-Each section MUST include:
-- A bold, descriptive, engaging header in {language}.
-- Core concept explanation.
-- Detailed psychological explanation.
-- Real-world examples.
-- At least one "{c['did_you_know']}" callout.
-- Practical implications.
-- A "{c['try_this']}" section with 2-3 specific steps.
+
+Each major section MUST include ALL of these elements:
+- A bold, descriptive, engaging header in {language} (make it a question or provocative statement)
+- Opening hook: relatable personal growth question or scenario (1 paragraph)
+- Core concept explanation: explain the self-help principle clearly (2-3 paragraphs)
+- Problem identification: what personal challenge does this address? (1-2 paragraphs)
+- Detailed explanation: dive deep into HOW and WHY this principle works psychologically (2-3 paragraphs)
+- Multiple real-world examples: show the principle in everyday life situations (2-3 paragraphs)
+- Contrasting perspectives: common mistakes vs. effective approaches (1-2 paragraphs)
+- At least one "{c['did_you_know']}" callout with a surprising psychological fact or research finding
+- Practical implications: how this applies to reader's personal growth journey (1-2 paragraphs)
+- A "{c['try_this']}" section with 2-3 specific, actionable steps readers can implement today
+- Smooth transition to next concept (1 paragraph)
 
 **Conclusion (400-600 words):**
-- Synthesize key insights.
-- Include comprehensive "{c['try_this']}" section with 8-12 concrete action items.
-
-**EXTRACT CARDS:**
+- Synthesize key insights from all sections into a cohesive personal growth framework
+- Provide an empowering final message about the reader's transformation potential
+- Include comprehensive "{c['try_this']}" section with 8-12 concrete action items for immediate implementation
+- End with motivational encouragement specific to personal growth and self-improvement
+- Address the reader's ability to create lasting change
 
 Extract 3-6 cards from EACH section you wrote above after Conclusion. Format each card exactly like this:
 **CARDS:*
@@ -228,7 +240,7 @@ TAGS: [tag1, tag2, tag3]
 
 **CONVERSATIONAL TONE - Personal Growth Style:**
 - Write as if you're a trusted mentor speaking to someone on their growth journey
-- Use "you" and "we" to create personal connection (in {self.summary_language})
+- Use "you" and "we" to create personal connection (in {language})
 - Keep language accessible but don't sacrifice depth or psychological insights
 - Use short, punchy statements for emphasis on key mindset shifts
 - Include rhetorical questions that prompt self-reflection
@@ -258,11 +270,11 @@ TAGS: [tag1, tag2, tag3]
 - Never be brief when you can provide thorough, actionable insights
 
 **FORMATTING RULES:**
-- Use bold for section headers and key concepts in {self.summary_language}
+- Use bold for section headers and key concepts in {language}
 - Keep individual paragraphs short (3-5 sentences max) but use MANY paragraphs
 - Use bullet points for frameworks, habit lists, or action steps
 - Break up long explanations every few paragraphs with callouts or examples
-- NO generic headers - make them personal, provocative, and in {self.summary_language}
+- NO generic headers - make them personal, provocative, and in {language}
 
 **CRITICAL - Make it COMPREHENSIVE:**
 - DO NOT create a brief overview - this needs depth and length
@@ -272,9 +284,14 @@ TAGS: [tag1, tag2, tag3]
 - Aim for 10,000-15,000 words total
 - Quality AND quantity - be thorough, practical, and deeply engaging
 
+Book Title: {{title}}
+Author: {{author}}
+Genre: Personal Growth & Self-Help
 
+Content:
+{{content}}
 
-
+Now create an EXTENSIVE, LONG, engaging, conversational summary (10,000-15,000 words) IN {language} that thoroughly covers all major personal growth concepts from the book. Remember: ALL text including headers, callouts, and phrases must be in {language}. Make readers feel like they're having a transformative conversation with a wise mentor who's taking the time to explain each principle in detail with plenty of real-life examples and actionable steps for personal growth.
 
 Book Title: {{title}}
 Author: {{author}}
@@ -283,8 +300,12 @@ Genre: Personal Growth & Self-Help
 Content:
 {{content}}
 
-Now create an EXTENSIVE, LONG, engaging summary (10,000-15,000 words) IN {language}.
+Now create your EXTENSIVE, LONG, engaging summary (10,000-15,000 words).
 """
+
+# ============================================================================
+# LOGIC: SUMMARIZER CLASS
+# ============================================================================
 class HeadwayStyleBookSummarizer:
     def __init__(self, summary_language: str):
         self.summary_language = summary_language
@@ -340,13 +361,13 @@ class HeadwayStyleBookSummarizer:
         """
         if not content.strip(): return "Summary could not be generated - no content available."
         
-        # 1. Safe replacement of placeholders in the prompt template
+        # Safe replacement of placeholders in the prompt template
         # Note: We use .replace() because f-strings are evaluated at runtime, 
         # but the template comes from the UI text box as a raw string.
         final_prompt = prompt_template.replace("{{title}}", metadata.title)
         final_prompt = final_prompt.replace("{{author}}", metadata.author)
         
-        # We handle single brackets too just in case the user edited them in the UI
+        # Handle single brackets just in case
         final_prompt = final_prompt.replace("{title}", metadata.title)
         final_prompt = final_prompt.replace("{author}", metadata.author)
         
@@ -364,13 +385,10 @@ class HeadwayStyleBookSummarizer:
             return response.choices[0].message.content
         except Exception as e:
             return f"Error generating summary: {str(e)}"
-    
-    
 
 # ============================================================================
 # MAIN UI
 # ============================================================================
-
 st.title("📖 Deep Dive Book Summarizer")
 
 if not creds_present:
@@ -382,7 +400,7 @@ else:
     if all_books:
         st.markdown("### 🔍 Find a Book")
         
-        # --- INTERACTIVE SEARCH LOGIC (Mimics your CLI structure) ---
+        # --- INTERACTIVE SEARCH LOGIC ---
         col_search1, col_search2 = st.columns([1, 3])
         
         with col_search1:
@@ -427,7 +445,7 @@ else:
             with col_sel2:
                 language = st.selectbox("Language:", ["English", "Spanish", "French", "Turkish", "German"])
 
-            # --- NEW: EDITABLE PROMPT SECTION ---
+            # --- EDITABLE PROMPT SECTION ---
             st.markdown("### 🛠️ Prompt Configuration")
             with st.expander("📝 Advanced: Edit System Prompt (Click to Open)", expanded=False):
                 st.info("The text below is the exact instruction sent to GPT-4. You can edit it to change the tone, length, or structure. Do not remove `{title}`, `{author}`, or `{content}` tags.")
@@ -461,7 +479,7 @@ else:
                     else:
                         status.update(label="Generating Summary (this takes ~1 min)...", state="running")
                         
-                        # CALL THE NEW METHOD WITH THE USER PROMPT
+                        # CALL THE METHOD WITH THE USER PROMPT
                         summary_text = summarizer.generate_headway_style_summary(metadata, all_content, user_prompt)
                         
                         st.session_state.summary_result = summary_text

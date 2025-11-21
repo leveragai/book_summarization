@@ -3,6 +3,10 @@ import os
 import time
 from dataclasses import dataclass
 from typing import List, Tuple, Dict
+from dotenv import load_dotenv  # <--- ADD THIS IMPORT
+
+# Load environment variables from .env file immediately
+load_dotenv()
 
 # --- Azure Imports ---
 from azure.storage.blob import BlobServiceClient
@@ -46,23 +50,27 @@ def get_secret(key):
         return st.secrets[key]
     return ""
 
-AZURE_STORAGE_CONN_STR = st.sidebar.text_input("Storage Connection String", value=get_secret("AZURE_STORAGE_CONNECTION_STRING"), type="password")
-CONTAINER_NAME = st.sidebar.text_input("Container Name", value=get_secret("CONTAINER_NAME"))
+AZURE_STORAGE_CONN_STR = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+CONTAINER_NAME = os.getenv("CONTAINER_NAME")
 
-st.sidebar.markdown("---")
-AZURE_OPENAI_KEY = st.sidebar.text_input("Azure OpenAI Key", value=get_secret("AZURE_OPENAI_KEY"), type="password")
-AZURE_OPENAI_ENDPOINT = st.sidebar.text_input("Azure OpenAI Endpoint", value=get_secret("AZURE_OPENAI_ENDPOINT"))
-AZURE_OPENAI_VERSION = st.sidebar.text_input("OpenAI API Version", value="2024-02-01")
-CHAT_MODEL = st.sidebar.text_input("Chat Model Name", value="gpt-4o")
-EMBEDDING_MODEL = st.sidebar.text_input("Embedding Model Name", value="text-embedding-ada-002")
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_VERSION = os.getenv("AZURE_OPENAI_VERSION", "2024-12-01-preview") # Default if not in .env
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4.1")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 
-st.sidebar.markdown("---")
-AZURE_SEARCH_ENDPOINT = st.sidebar.text_input("Search Service Endpoint", value=get_secret("AZURE_SEARCH_SERVICE_ENDPOINT"))
-AZURE_SEARCH_KEY = st.sidebar.text_input("Search Admin Key", value=get_secret("AZURE_SEARCH_ADMIN_KEY"), type="password")
-AZURE_SEARCH_INDEX = st.sidebar.text_input("Search Index Name", value=get_secret("AZURE_SEARCH_INDEX_NAME"))
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_SERVICE_ENDPOINT")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX_NAME")
 
 creds_present = all([AZURE_STORAGE_CONN_STR, CONTAINER_NAME, AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX])
-
+with st.sidebar:
+    st.header("⚙️ System Status")
+    if creds_present:
+        st.success("✅ Credentials Loaded from .env")
+    else:
+        st.error("❌ Missing Credentials in .env")
+        st.info("Please check your .env file contains all required Azure keys.")
 # ============================================================================
 # LOGIC: BOOK DISCOVERY & PARSING
 # ============================================================================

@@ -353,39 +353,65 @@ class HeadwayStyleBookSummarizer:
                 all_documents[query] = []
         my_bar.empty()
         return all_documents
-    
+
     def generate_headway_style_summary(self, metadata: BookMetadata, content: str, prompt_template: str) -> str:
         """
-        Generates summary using the user-provided prompt string.
-        Replaces {title}, {author}, and {content} placeholders.
+        Generates a massive summary by breaking it into 3 chained calls.
         """
-        if not content.strip(): return "Summary could not be generated - no content available."
-        
-        # Safe replacement of placeholders in the prompt template
-        # Note: We use .replace() because f-strings are evaluated at runtime, 
-        # but the template comes from the UI text box as a raw string.
-        final_prompt = prompt_template.replace("{{title}}", metadata.title)
-        final_prompt = final_prompt.replace("{{author}}", metadata.author)
-        
-        # Handle single brackets just in case
-        final_prompt = final_prompt.replace("{title}", metadata.title)
-        final_prompt = final_prompt.replace("{author}", metadata.author)
-        
-        # Insert content (Limit to 15k chars to prevent context window overflow)
-        final_prompt = final_prompt.replace("{{content}}", content[:15000])
-        final_prompt = final_prompt.replace("{content}", content[:15000])
-        
-        try:
-            response = self.openai_client.chat.completions.create(
-                model=CHAT_MODEL,
-                messages=[{"role": "user", "content": final_prompt}],
-                max_tokens=4096,
-                temperature=0.2
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"Error generating summary: {str(e)}"
+        if not content.strip(): return "No content available."
 
+        # Prepare the base prompt context
+        base_content = content[:25000] # Give it plenty of context
+        full_summary = ""
+        
+        parts = [
+            ("PART 1: INTRODUCTION & FIRST 4 CONCEPTS", "Focus on the Opening Hook, The Core Problem, and Deep Dives into the first 4 major concepts."),
+            ("PART 2: CONCEPTS 5-8 & PSYCHOLOGY", "Focus on Deep Dives into concepts 5-8, psychological insights, and 'Did You Know' facts."),
+            ("PART 3: FINAL CONCEPTS, CONCLUSION & ACTION PLAN", "Focus on remaining concepts, the detailed 'Try This' action plan, and the empowering Conclusion.")
+        ]
+
+        progress_bar = st.progress(0, text="Starting generation...")
+
+        for i, (part_title, focus) in enumerate(parts):
+            progress_bar.progress(int(((i) / 3) * 100), text=f"Writing {part_title}...")
+            
+            # We inject a specific instruction for this part into the user's template
+            part_instruction = f"""
+            \n\n--- CURRENT TASK ---
+            You are currently writing **{part_title}**.
+            **FOCUS:** {focus}
+            **DO NOT** write the other parts yet. Write ONLY this part in extreme detail (approx 3,000 words).
+            """
+            
+            # Safe replacement
+            final_prompt = prompt_template.replace("{{title}}", metadata.title)
+            final_prompt = final_prompt.replace("{{author}}", metadata.author)
+            final_prompt = final_prompt.replace("{{content}}", base_content)
+            
+            # Append the specific part instruction to the end of the user's prompt
+            final_prompt += part_instruction
+            
+            try:
+                response = self.openai_client.chat.completions.create(
+                    model=CHAT_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an expert book summarizer. You write in extensive, detailed chunks."},
+                        {"role": "user", "content": final_prompt}
+                    ],
+                    max_tokens=50000, # Max output per part
+                    temperature=0.3
+                )
+                part_content = response.choices[0].message.content
+                full_summary += f"\n\n# {part_title}\n\n" + part_content
+                
+            except Exception as e:
+                full_summary += f"\n\n[Error generating {part_title}: {str(e)}]\n"
+        
+        progress_bar.progress(100, text="Compilation complete!")
+        time.sleep(1)
+        progress_bar.empty()
+        
+        return full_summary
 # ============================================================================
 # MAIN UI
 # ============================================================================

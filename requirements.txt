@@ -3,3 +3,4 @@ azure-storage-blob
 azure-search-documents
 azure-core
 openai
+python-dotenv

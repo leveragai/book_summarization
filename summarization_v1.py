@@ -473,6 +473,26 @@ Now create your EXTENSIVE, LONG, engaging summary (10,000-15,000 words).
         except Exception as e:
             return f"Error: {str(e)}"
 
+def generate_summary_with_custom_prompt(self, metadata: BookMetadata, content: str, prompt_template: str) -> str:
+        """Generates summary using the user-provided prompt string."""
+        if not content.strip(): return "No content available."
+        
+        # Safe replacement of placeholders
+        final_prompt = prompt_template.replace("{title}", metadata.title)
+        final_prompt = final_prompt.replace("{author}", metadata.author)
+        # We limit content display in prompt to avoid token overflow if user pastes massive logs
+        final_prompt = final_prompt.replace("{content}", content[:15000]) 
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=CHAT_MODEL,
+                messages=[{"role": "user", "content": final_prompt}],
+                max_tokens=4096,
+                temperature=0.7
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error generating summary: {str(e)}"
 # ============================================================================
 # MAIN UI
 # ============================================================================
@@ -522,9 +542,7 @@ else:
 
         # --- SELECTION & GENERATION ---
         if matches:
-            st.success(f"Found {len(matches)} books matching your criteria.")
-            
-            # Create a dictionary for the dropdown mapping "Title (Author)" -> Book Object
+            st.success(f"Found {len(matches)} matching book(s).")
             book_map = {f"{b.title} ({b.author})": b for b in matches}
             
             col_sel1, col_sel2 = st.columns([3, 1])
@@ -534,6 +552,17 @@ else:
             
             with col_sel2:
                 language = st.selectbox("Language:", ["English", "Spanish", "French", "Turkish", "German"])
+
+            # --- NEW: EDITABLE PROMPT SECTION ---
+            st.markdown("### 🛠️ Prompt Configuration")
+            with st.expander("📝 Advanced: Edit System Prompt (Click to Open)", expanded=False):
+                st.info("The text below is the exact instruction sent to GPT-4. You can edit it to change the tone, length, or structure. Do not remove `{title}`, `{author}`, or `{content}` tags.")
+                
+                # Get the default template dynamically based on the selected language
+                default_template = get_default_prompt_template(language)
+                
+                # User can edit this
+                user_prompt = st.text_area("System Prompt", value=default_template, height=400)
 
             if st.button("🚀 Generate Summary", type="primary"):
                 st.session_state.current_book = selected_book.title
@@ -557,7 +586,10 @@ else:
                         st.error("No content found.")
                     else:
                         status.update(label="Generating Summary (this takes ~1 min)...", state="running")
-                        summary_text = summarizer.generate_headway_style_summary(metadata, all_content)
+                        
+                        # CALL THE NEW METHOD WITH THE USER PROMPT
+                        summary_text = summarizer.generate_summary_with_custom_prompt(metadata, all_content, user_prompt)
+                        
                         st.session_state.summary_result = summary_text
                         status.update(label="Complete!", state="complete", expanded=False)
 

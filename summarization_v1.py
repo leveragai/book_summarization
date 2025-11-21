@@ -129,251 +129,75 @@ def search_book_by_criteria(books_info: List[BookInfo], title: str = None, autho
 # LOGIC: SUMMARIZER CLASS
 # ============================================================================
 
-class HeadwayStyleBookSummarizer:
-    def __init__(self, summary_language: str):
-        self.summary_language = summary_language
-        self.openai_client = AzureOpenAI(
-            api_key=AZURE_OPENAI_KEY,
-            api_version=AZURE_OPENAI_VERSION,
-            azure_endpoint=AZURE_OPENAI_ENDPOINT
-        )
-        
-    def generate_embedding(self, text: str) -> List[float]:
-        try:
-            response = self.openai_client.embeddings.create(input=text, model=EMBEDDING_MODEL)
-            return response.data[0].embedding
-        except Exception as e:
-            st.error(f"❌ Error generating embedding: {e}")
-            return []
+# ============================================================================
+# PROMPT GENERATION HELPER
+# ============================================================================
+def get_default_prompt_template(language: str) -> str:
+    """Returns the default prompt string with the correct language callouts pre-filled."""
     
-    def generate_retrieval_queries(self, book_metadata: BookMetadata) -> List[str]:
-        book_title = book_metadata.title
-        author = book_metadata.author
-        queries = [
-            f"{book_title}", f"{book_title} summary", f"{book_title} key concepts",
-            f"{book_title} main ideas", f"{author}", f"{author} {book_title}",
-            f"key takeaways {book_title}", f"actionable advice {book_title}",
-            f"lessons from {book_title}", f"principles {book_title}"
-        ]
-        return list(set(queries))
+    callout_translations = {
+        "English": {"did_you_know": "Did you know?", "try_this": "Try this:", "heres_the_thing": "Here's the thing:", "remember": "Remember:", "lets_be_honest": "Let's be honest:", "the_bottom_line": "The bottom line:", "sound_familiar": "Sound familiar?", "key_takeaway": "Key takeaway:", "think_about_it": "Think about it:", "the_truth_is": "The truth is:"},
+        "Spanish": {"did_you_know": "¿Sabías que?", "try_this": "Prueba esto:", "heres_the_thing": "Esto es lo importante:", "remember": "Recuerda:", "lets_be_honest": "Seamos honestos:", "the_bottom_line": "En resumen:", "sound_familiar": "¿Te suena familiar?", "key_takeaway": "Punto clave:", "think_about_it": "Piénsalo:", "the_truth_is": "La verdad es:"},
+        "Turkish": {"did_you_know": "Biliyor muydunuz?", "try_this": "Bunu deneyin:", "heres_the_thing": "Şöyle bir şey var:", "remember": "Unutmayın:", "lets_be_honest": "Açıkçası:", "the_bottom_line": "Özetle:", "sound_familiar": "Tanıdık geliyor mu?", "key_takeaway": "Önemli nokta:", "think_about_it": "Bir düşünün:", "the_truth_is": "Gerçek şu ki:"},
+        "French": {"did_you_know": "Le saviez-vous?", "try_this": "Essayez ceci:", "heres_the_thing": "Voici la chose:", "remember": "Rappelez-vous:", "lets_be_honest": "Soyons honnêtes:", "the_bottom_line": "L'essentiel:", "sound_familiar": "Ça vous dit quelque chose?", "key_takeaway": "Point clé:", "think_about_it": "Pensez-y:", "the_truth_is": "La vérité est:"},
+        "German": {"did_you_know": "Wussten Sie?", "try_this": "Versuchen Sie dies:", "heres_the_thing": "Die Sache ist:", "remember": "Denken Sie daran:", "lets_be_honest": "Seien wir ehrlich:", "the_bottom_line": "Unterm Strich:", "sound_familiar": "Kommt Ihnen bekannt vor?", "key_takeaway": "Wichtigster Punkt:", "think_about_it": "Denken Sie darüber nach:", "the_truth_is": "Die Wahrheit ist:"}
+    }
     
-    def retrieve_documents(self, queries: List[str], max_docs_per_query: int = 100) -> Dict[str, List[str]]:
-        all_documents = {}
-        progress_text = "Retrieving documents from Azure Search..."
-        my_bar = st.progress(0, text=progress_text)
-        total_queries = len(queries)
-        
-        for i, query in enumerate(queries):
-            try:
-                my_bar.progress(int((i / total_queries) * 100), text=f"Searching: {query}")
-                query_embedding = self.generate_embedding(query)
-                if not query_embedding: continue
-                
-                search_client = SearchClient(endpoint=AZURE_SEARCH_ENDPOINT, index_name=AZURE_SEARCH_INDEX, credential=AzureKeyCredential(AZURE_SEARCH_KEY))
-                vector_query = VectorizedQuery(vector=query_embedding, k_nearest_neighbors=50, fields="text_vector")
-                
-                results = search_client.search(search_text='*', vector_queries=[vector_query], select=["chunk"], top=max_docs_per_query)
-                documents = [result["chunk"] for result in results if "chunk" in result]
-                all_documents[query] = documents
-                time.sleep(0.2)
-            except Exception as e:
-                all_documents[query] = []
-        
-        my_bar.empty()
-        return all_documents
+    # Default to English if language not found
+    c = callout_translations.get(language, callout_translations["English"])
     
-    def generate_headway_style_summary(self, metadata: BookMetadata, content: str) -> str:
-        """
-        Generate a LONG, engaging, conversational summary in Headway style (10,000-15,000 words).
-        Optimized for Personal Growth & Self-Help genre with full language localization.
-        """
-        if not content.strip():
-            return "Summary could not be generated - no content available."
-        
-        # Language-specific callout titles mapping
-        callout_translations = {
-            "English": {
-                "did_you_know": "Did you know?",
-                "try_this": "Try this:",
-                "heres_the_thing": "Here's the thing:",
-                "remember": "Remember:",
-                "lets_be_honest": "Let's be honest:",
-                "the_bottom_line": "The bottom line:",
-                "sound_familiar": "Sound familiar?",
-                "key_takeaway": "Key takeaway:",
-                "think_about_it": "Think about it:",
-                "the_truth_is": "The truth is:"
-            },
-            "Spanish": {
-                "did_you_know": "¿Sabías que?",
-                "try_this": "Prueba esto:",
-                "heres_the_thing": "Esto es lo importante:",
-                "remember": "Recuerda:",
-                "lets_be_honest": "Seamos honestos:",
-                "the_bottom_line": "En resumen:",
-                "sound_familiar": "¿Te suena familiar?",
-                "key_takeaway": "Punto clave:",
-                "think_about_it": "Piénsalo:",
-                "the_truth_is": "La verdad es:"
-            },
-            "French": {
-                "did_you_know": "Le saviez-vous?",
-                "try_this": "Essayez ceci:",
-                "heres_the_thing": "Voici la chose:",
-                "remember": "Rappelez-vous:",
-                "lets_be_honest": "Soyons honnêtes:",
-                "the_bottom_line": "L'essentiel:",
-                "sound_familiar": "Ça vous dit quelque chose?",
-                "key_takeaway": "Point clé:",
-                "think_about_it": "Pensez-y:",
-                "the_truth_is": "La vérité est:"
-            },
-            "Turkish": {
-                "did_you_know": "Biliyor muydunuz?",
-                "try_this": "Bunu deneyin:",
-                "heres_the_thing": "Şöyle bir şey var:",
-                "remember": "Unutmayın:",
-                "lets_be_honest": "Açıkçası:",
-                "the_bottom_line": "Özetle:",
-                "sound_familiar": "Tanıdık geliyor mu?",
-                "key_takeaway": "Önemli nokta:",
-                "think_about_it": "Bir düşünün:",
-                "the_truth_is": "Gerçek şu ki:"
-            },
-            "German": {
-                "did_you_know": "Wussten Sie?",
-                "try_this": "Versuchen Sie dies:",
-                "heres_the_thing": "Die Sache ist:",
-                "remember": "Denken Sie daran:",
-                "lets_be_honest": "Seien wir ehrlich:",
-                "the_bottom_line": "Unterm Strich:",
-                "sound_familiar": "Kommt Ihnen bekannt vor?",
-                "key_takeaway": "Wichtigster Punkt:",
-                "think_about_it": "Denken Sie darüber nach:",
-                "the_truth_is": "Die Wahrheit ist:"
-            },
-            "Italian": {
-                "did_you_know": "Lo sapevi?",
-                "try_this": "Prova questo:",
-                "heres_the_thing": "Ecco il punto:",
-                "remember": "Ricorda:",
-                "lets_be_honest": "Siamo onesti:",
-                "the_bottom_line": "In sintesi:",
-                "sound_familiar": "Ti suona familiare?",
-                "key_takeaway": "Punto chiave:",
-                "think_about_it": "Pensaci:",
-                "the_truth_is": "La verità è:"
-            },
-            "Portuguese": {
-                "did_you_know": "Você sabia?",
-                "try_this": "Tente isto:",
-                "heres_the_thing": "A questão é:",
-                "remember": "Lembre-se:",
-                "lets_be_honest": "Sejamos honestos:",
-                "the_bottom_line": "Resumindo:",
-                "sound_familiar": "Parece familiar?",
-                "key_takeaway": "Ponto chave:",
-                "think_about_it": "Pense nisso:",
-                "the_truth_is": "A verdade é:"
-            },
-            "Chinese": {
-                "did_you_know": "你知道吗？",
-                "try_this": "试试这个：",
-                "heres_the_thing": "事情是这样的：",
-                "remember": "记住：",
-                "lets_be_honest": "说实话：",
-                "the_bottom_line": "重点是：",
-                "sound_familiar": "听起来熟悉吗？",
-                "key_takeaway": "关键要点：",
-                "think_about_it": "想想看：",
-                "the_truth_is": "事实是："
-            },
-            "Japanese": {
-                "did_you_know": "ご存知ですか？",
-                "try_this": "これを試してみて：",
-                "heres_the_thing": "ポイントは：",
-                "remember": "覚えておいて：",
-                "lets_be_honest": "正直に言うと：",
-                "the_bottom_line": "要するに：",
-                "sound_familiar": "心当たりがありますか？",
-                "key_takeaway": "重要なポイント：",
-                "think_about_it": "考えてみて：",
-                "the_truth_is": "真実は："
-            }
-        }
-        callouts = callout_translations.get("English", callout_translations["English"])    
-        
-        prompt = f"""
+    return f"""
 You are creating a COMPREHENSIVE, LONG, engaging, conversational book summary for a Personal Growth & Self-Help book.
 This should be an EXTENSIVE and DETAILED summary that thoroughly covers all major concepts from the book.
 Your goal is to make complex ideas accessible and keep readers engaged throughout a 12-15 minute read.
 
 **CRITICAL LANGUAGE REQUIREMENT:**
-- Write the ENTIRE summary in {self.summary_language}
-- ALL text including headers, callouts, phrases, and content MUST be in {self.summary_language}
-- Use these specific callout titles if necessary in {self.summary_language}:
-  * "{callouts['did_you_know']}" (for fascinating facts)
-  * "{callouts['try_this']}" (for actionable steps)
-  * "{callouts['heres_the_thing']}" (for important insights)
-  * "{callouts['remember']}" (for key principles)
-  * "{callouts['lets_be_honest']}" (for relatable truths)
-  * "{callouts['the_bottom_line']}" (for summarizing takeaways)
-  * "{callouts['sound_familiar']}" (for connection with readers)
-  * "{callouts['key_takeaway']}" (for main points)
-  * "{callouts['think_about_it']}" (for reflection prompts)
-  * "{callouts['the_truth_is']}" (for powerful statements)
+- Write the ENTIRE summary in {language}
+- ALL text including headers, callouts, phrases, and content MUST be in {language}
+- Use these specific callout titles if necessary in {language}:
+  * "{c['did_you_know']}" (for fascinating facts)
+  * "{c['try_this']}" (for actionable steps)
+  * "{c['heres_the_thing']}" (for important insights)
+  * "{c['remember']}" (for key principles)
+  * "{c['lets_be_honest']}" (for relatable truths)
+  * "{c['the_bottom_line']}" (for summarizing takeaways)
+  * "{c['sound_familiar']}" (for connection with readers)
+  * "{c['key_takeaway']}" (for main points)
+  * "{c['think_about_it']}" (for reflection prompts)
+  * "{c['the_truth_is']}" (for powerful statements)
 
 **GENRE FOCUS: Personal Growth & Self-Help**
-This book belongs to the Personal Growth & Self-Help genre. Your summary should:
-- Focus on practical self-improvement strategies and actionable advice
-- Address common personal challenges (mindset, habits, relationships, success, fulfillment)
-- Emphasize personal transformation and growth
-- Include psychological insights and behavioral change principles
-- Connect concepts to the reader's personal journey
-- Balance inspiration with practical, implementable steps
-- Address both internal (mindset, beliefs) and external (actions, habits) changes
-- Use relatable life scenarios and everyday examples
+- Focus on practical self-improvement strategies and actionable advice.
+- Address common personal challenges (mindset, habits, relationships).
+- Use relatable life scenarios and everyday examples.
 
 **LENGTH REQUIREMENTS - CRITICAL:**
-1. The summary MUST be EXTENSIVE and COMPREHENSIVE - aim for 10,000-15,000 words minimum
-2. This is a 12-15 minute read - it needs to be LONG and provide substantial value
-3. Cover 8-12 major concepts/principles from the book
-4. Each major concept should have 800-1,500 words of detailed explanation
-5. Include multiple examples, scenarios, and practical applications for each concept
-6. DO NOT create a brief summary - expand every concept thoroughly
-7. Each major section should have 5-8 paragraphs of detailed explanation
-8. Don't rush through concepts - take time to explain them thoroughly with examples
-9. The reader should feel they've gotten immense value without reading the full book
+1. The summary MUST be EXTENSIVE - aim for 10,000-15,000 words minimum.
+2. Cover 8-12 major concepts/principles from the book.
+3. Each major concept should have 800-1,500 words of detailed explanation.
+4. Include multiple examples, scenarios, and practical applications for each concept.
 
 **STRUCTURE - COMPREHENSIVE Coverage:**
 
 **Opening (200-300 words):**
-- Start with an engaging hook - a provocative question or relatable scenario about personal growth
-- Set up the main problem or challenge in personal development that the book addresses
-- Create curiosity about the transformation or insights to come
-- Make it personally relevant to the reader's life journey
+- Start with an engaging hook.
+- Set up the main problem or challenge.
 
 **8-12 MAJOR SECTIONS (each 800-1,500 words):**
-
-Each major section MUST include ALL of these elements:
-- A bold, descriptive, engaging header in {self.summary_language} (make it a question or provocative statement)
-- Opening hook: relatable personal growth question or scenario (1 paragraph)
-- Core concept explanation: explain the self-help principle clearly (2-3 paragraphs)
-- Problem identification: what personal challenge does this address? (1-2 paragraphs)
-- Detailed explanation: dive deep into HOW and WHY this principle works psychologically (2-3 paragraphs)
-- Multiple real-world examples: show the principle in everyday life situations (2-3 paragraphs)
-- Contrasting perspectives: common mistakes vs. effective approaches (1-2 paragraphs)
-- At least one "{callouts['did_you_know']}" callout with a surprising psychological fact or research finding
-- Practical implications: how this applies to reader's personal growth journey (1-2 paragraphs)
-- A "{callouts['try_this']}" section with 2-3 specific, actionable steps readers can implement today
-- Smooth transition to next concept (1 paragraph)
+Each section MUST include:
+- A bold, descriptive, engaging header in {language}.
+- Core concept explanation.
+- Detailed psychological explanation.
+- Real-world examples.
+- At least one "{c['did_you_know']}" callout.
+- Practical implications.
+- A "{c['try_this']}" section with 2-3 specific steps.
 
 **Conclusion (400-600 words):**
-- Synthesize key insights from all sections into a cohesive personal growth framework
-- Provide an empowering final message about the reader's transformation potential
-- Include comprehensive "{callouts['try_this']}" section with 8-12 concrete action items for immediate implementation
-- End with motivational encouragement specific to personal growth and self-improvement
-- Address the reader's ability to create lasting change
+- Synthesize key insights.
+- Include comprehensive "{c['try_this']}" section with 8-12 concrete action items.
+
+**EXTRACT CARDS:**
 
 Extract 3-6 cards from EACH section you wrote above after Conclusion. Format each card exactly like this:
 **CARDS:*
@@ -448,40 +272,87 @@ TAGS: [tag1, tag2, tag3]
 - Aim for 10,000-15,000 words total
 - Quality AND quantity - be thorough, practical, and deeply engaging
 
-Book Title: {metadata.title}
-Author: {metadata.author}
+
+
+
+
+Book Title: {{title}}
+Author: {{author}}
 Genre: Personal Growth & Self-Help
 
 Content:
-{content}
+{{content}}
 
-Now create an EXTENSIVE, LONG, engaging, conversational summary (10,000-15,000 words) IN {self.summary_language} that thoroughly covers all major personal growth concepts from the book. Remember: ALL text including headers, callouts, and phrases must be in {self.summary_language}. Make readers feel like they're having a transformative conversation with a wise mentor who's taking the time to explain each principle in detail with plenty of real-life examples and actionable steps for personal growth.
-
-
-Book Title: {metadata.title}
-Author: {metadata.author}
-Genre: Personal Growth & Self-Help
-
-Content:
-{content[:15000]}
-
-Now create your EXTENSIVE, LONG, engaging summary (10,000-15,000 words).
+Now create an EXTENSIVE, LONG, engaging summary (10,000-15,000 words) IN {language}.
 """
-        try:
-            response = self.openai_client.chat.completions.create(model=CHAT_MODEL, messages=[{"role": "user", "content": prompt}], max_tokens=4096, temperature=0.7)
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-def generate_summary_with_custom_prompt(self, metadata: BookMetadata, content: str, prompt_template: str) -> str:
-        """Generates summary using the user-provided prompt string."""
-        if not content.strip(): return "No content available."
+class HeadwayStyleBookSummarizer:
+    def __init__(self, summary_language: str):
+        self.summary_language = summary_language
+        self.openai_client = AzureOpenAI(
+            api_key=AZURE_OPENAI_KEY,
+            api_version=AZURE_OPENAI_VERSION,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT
+        )
         
-        # Safe replacement of placeholders
-        final_prompt = prompt_template.replace("{title}", metadata.title)
+    def generate_embedding(self, text: str) -> List[float]:
+        try:
+            response = self.openai_client.embeddings.create(input=text, model=EMBEDDING_MODEL)
+            return response.data[0].embedding
+        except Exception as e:
+            st.error(f"❌ Error generating embedding: {e}")
+            return []
+    
+    def generate_retrieval_queries(self, book_metadata: BookMetadata) -> List[str]:
+        t = book_metadata.title
+        a = book_metadata.author
+        queries = [f"{t}", f"{t} summary", f"{t} key concepts", f"{t} main ideas", f"{a} {t}",
+                   f"key takeaways {t}", f"actionable advice {t}", f"lessons from {t}"]
+        return list(set(queries))
+    
+    def retrieve_documents(self, queries: List[str], max_docs_per_query: int = 100) -> Dict[str, List[str]]:
+        all_documents = {}
+        progress_text = "Retrieving documents from Azure Search..."
+        my_bar = st.progress(0, text=progress_text)
+        total = len(queries)
+        
+        for i, query in enumerate(queries):
+            try:
+                my_bar.progress(int((i / total) * 100), text=f"Searching: {query}")
+                emb = self.generate_embedding(query)
+                if not emb: continue
+                
+                sc = SearchClient(endpoint=AZURE_SEARCH_ENDPOINT, index_name=AZURE_SEARCH_INDEX, credential=AzureKeyCredential(AZURE_SEARCH_KEY))
+                vq = VectorizedQuery(vector=emb, k_nearest_neighbors=50, fields="text_vector")
+                results = sc.search(search_text='*', vector_queries=[vq], select=["chunk"], top=max_docs_per_query)
+                
+                docs = [r["chunk"] for r in results if "chunk" in r]
+                all_documents[query] = docs
+                time.sleep(0.2)
+            except Exception as e:
+                all_documents[query] = []
+        my_bar.empty()
+        return all_documents
+    
+    def generate_headway_style_summary(self, metadata: BookMetadata, content: str, prompt_template: str) -> str:
+        """
+        Generates summary using the user-provided prompt string.
+        Replaces {title}, {author}, and {content} placeholders.
+        """
+        if not content.strip(): return "Summary could not be generated - no content available."
+        
+        # 1. Safe replacement of placeholders in the prompt template
+        # Note: We use .replace() because f-strings are evaluated at runtime, 
+        # but the template comes from the UI text box as a raw string.
+        final_prompt = prompt_template.replace("{{title}}", metadata.title)
+        final_prompt = final_prompt.replace("{{author}}", metadata.author)
+        
+        # We handle single brackets too just in case the user edited them in the UI
+        final_prompt = final_prompt.replace("{title}", metadata.title)
         final_prompt = final_prompt.replace("{author}", metadata.author)
-        # We limit content display in prompt to avoid token overflow if user pastes massive logs
-        final_prompt = final_prompt.replace("{content}", content[:15000]) 
+        
+        # Insert content (Limit to 15k chars to prevent context window overflow)
+        final_prompt = final_prompt.replace("{{content}}", content[:15000])
+        final_prompt = final_prompt.replace("{content}", content[:15000])
         
         try:
             response = self.openai_client.chat.completions.create(
@@ -493,6 +364,9 @@ def generate_summary_with_custom_prompt(self, metadata: BookMetadata, content: s
             return response.choices[0].message.content
         except Exception as e:
             return f"Error generating summary: {str(e)}"
+    
+    
+
 # ============================================================================
 # MAIN UI
 # ============================================================================
@@ -588,7 +462,7 @@ else:
                         status.update(label="Generating Summary (this takes ~1 min)...", state="running")
                         
                         # CALL THE NEW METHOD WITH THE USER PROMPT
-                        summary_text = summarizer.generate_summary_with_custom_prompt(metadata, all_content, user_prompt)
+                        summary_text = summarizer.generate_headway_style_summary(metadata, all_content, user_prompt)
                         
                         st.session_state.summary_result = summary_text
                         status.update(label="Complete!", state="complete", expanded=False)

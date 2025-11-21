@@ -398,7 +398,7 @@ class HeadwayStyleBookSummarizer:
                         {"role": "system", "content": "You are an expert book summarizer. You write in extensive, detailed chunks."},
                         {"role": "user", "content": final_prompt}
                     ],
-                    max_tokens=50000, # Max output per part
+                    max_tokens=20000, # Max output per part
                     temperature=0.3
                 )
                 part_content = response.choices[0].message.content
